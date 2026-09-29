@@ -746,17 +746,322 @@ QoS : Quality of Service
 
 Guaranteed QoS : Every container must have CPU & Memory requests exactly equal to limits.
 
+==============================
+
+Deployment Methods: 
+
+docker pull avizway/app:v1
+docker pull avizway/app:v2
+docker pull avizway/app:v3
+docker pull avizway/app:canary
+docker pull avizway/app:green
+docker pull avizway/app:blue
+
+
+Rolling Update : Assume, you are upgrading 4 servers.. Instead of shutting down all of them, You upgrade only 1 at a time. Users may always hit 3 healthy servers, User dont notice any downtime. 
+--> We can configure MaxSurge and MaxUnavailbale
+
+
+kubectl rollout status deployment/demo-app
+
+kubectl rollout history deployment/demo-app
+
+kubectl rollout undo deployment/demo-app
+
+kubectl rollout undo deployment/demo-app --to-revision=1
+
+kubectl rollout restart deployment/demo-app
+
+----
+
+Recreate Deployment: 
+
+The entire old version is shutdown first, then the new version starts. 
+
+----
+Blue Green : 
+
+blue = Current version
+green = new version
+
+We can switch from blue to green at service level by changing the label.
+
+kubectl patch svc demo-bg-svc -p '{"spec":{selector"}:{"version":"green"}}'
+
+----
+
+Canary Deployment : named after "Canary in a coal Mine".. Send small traffic first, then increase gradually.
+
+----
+
+ArgoRollouts: 
+
+===================================================================================================
+
+D: 25/09/2026
+
+Node Affinity : Node affinity option helps us to control where our pod should run. This selection happens based on node labels. 
+
+kubectl get nodes
+kubectl get nodes --show-labels
+kubectl get nodes --show-labels
+kubectl describe nodes <node-name>
+
+
+ip-192-168-44-111.ap-south-1.compute.internal   ==> Unlabelled
+ip-192-168-6-217.ap-south-1.compute.internal    ==> Labelled
+
+To add label : 
+kubectl label nodes ip-192-168-6-217.ap-south-1.compute.internal disktype=ssd
+
+To Remove Label : 
+kubectl label nodes ip-192-168-6-217.ap-south-1.compute.internal disktype-
+
+Remove label (disktype) from all Nodes: 
+kubectl label nodes --all disktype-
+
+----
+Strict Requirement:  requiredDuringSchedulingIgnoredDuringExecution 
+requiredDuringScheduling: Pod must run on a matching node only. If a match label is not found it stays pending. 
+----
+Soft Requirement: 
+preferredDuringScheduling: Pod looks for matching labelled nodes. It will run even if no node has the mentioned label. 
+
+
+IgnoredDuringExecution : once a pod is successfully running on a node, Kubernetes will not continuously re-evaluate the specific rule against the node. If someone removes or modifies the label on the node when the pod is actively running, Kubernetes will not evict or terminate the pod. The pod will safely continue running until it finishes its work or is manually deleted. 
+
+=======================
+
+pod affinity : Pods stick together on same node. 
+This helps whenever we need ultra-low latency between multiple pods. 
+
+pod anti-affinity : pods cannot run on the same node. 
+This helps with high availability. 
+
+=======================
+
+Taint : NODE : This is a special seat with "RESERVED" option.
+Tolaration : POD : The "PASS" to get the reserved seat.
+
+NoSchedule : New pods won't be scheduled here.
+PreferNoSchedule : kubernetes avoids scheduling a workload here but it is a soft rule. 
+
+
+Step 1 : add a label to a node so we can force our pod to run on that specific node using the node selector option. 
+kubectl label nodes ip-192-168-6-217.ap-south-1.compute.internal disktype=ssd
+
+Step 2 : taint the same node. 
+kubectl taint nodes ip-192-168-6-217.ap-south-1.compute.internal role=db:NoSchedule
+
+kubectl describe nodes ip-192-168-6-217.ap-south-1.compute.internal
+
+Untaint a Node:
+kubectl taint nodes ip-192-168-6-217.ap-south-1.compute.internal role=db:NoSchedule-
+
+============================================================================
+
+Node Drain : the node drain operation evicts all pods from a node gracefully. This is commonly used for:
+1. node maintenance
+2. decommissioning a node
+3. cluster upgrade
+
+Flags:
+--ignore-daemonsets	: Skip daemonset pods that actually run on every node. 
+--delete-emptydir-data : delayed pods that are using empty directory volumes.
+--timeout=120s : Fail if the drain takes longer than 60 seconds.
+
+When we are performing node drain, three things happen:
+1. The node is marked as scheduling disabled (cordoned).
+2. No new pods will be scheduled on this node.
+3. Existing pods are evicted and rescheduled on other nodes.
+
+
+kubectl describe nodes ip-192-168-6-217.ap-south-1.compute.internal
+
+--> Take a sample deployment with 2 pods and deploy.. Then perform the drain.. 
+
+kubectl drain ip-192-168-6-217.ap-south-1.compute.internal --ignore-daemonsets --delete-emptydir-data --timeout=120s --force
+
+kubectl uncordon ip-192-168-6-217.ap-south-1.compute.internal
+
+--> Our workload is not going to redistribute or rebalance across the multiple nodes if any node is unquarantined. We can run the `kubectl rollout restart` command to redistribute our workload across multiple nodes. 
+
+kubectl rollout restart deployment mynginx
+
+===============
+
+PDB : Pod disruption budget
+
+PDB will ensure the minimum number of pods stays running during voluntary disruptions. 
+PDB protects the application from becoming unavailable during maintenance activities. 
+PDB applies only to voluntary disruptions. 
+
+VOLUNTARY DISRUPTION: Node drain, cluster upgrade, scale down
+INVOLUNTARY DISRUPTION: Node Crash, Hardware failure, kernel panic
+
+==================
+
+
+1. STARTUP PROBE: Checks if container has started successfully.
+2. READINESS PROBE: Checks if container is ready to receive traffic
+3. LIVENESS PROBE: Checks if container is still running healthy
+
+
+We always configure the startup probe first. Without the container starting how will the container take traffic? 
+
+STARTUP PROBE:
+--> It protects slow-starting containers from being killed by a liveness probe. 
+
+
+===================
+
+kubectl exec -it frontend-5cfd995957-f9xkh -- sh
+~ $ curl http://backend
+
+http://<service-name>
+http://<service-name>.<namespace>.svc.cluster.local
+curl http://backend.default.svc.cluster.local
+
+
+==================
+
+eksctl create cluster --name ekswithavinash-uat --version 1.35 --region ap-south-1 --zones=ap-south-1a,ap-south-1b --nodegroup-name myeksnodes --nodes 1 --node-type c7i-flex.large --node-ami-family=AmazonLinux2023 --managed
+
+
+cluster 1 : ekswithavinash
+cluster 2 : ekswithavinash-uat
+
+kubectl configuration location: ~/.kube/config
+
+kubectl config get-contexts
+
+aws eks update-kubeconfig --region ap-south-1 --name ekswithavinash --alias dev-cluster
+aws eks update-kubeconfig --region ap-south-1 --name ekswithavinash-uat --alias uat-cluster
+
+
+kubectl --context=dev-cluster get pods			--> picks dev-cluster context and shows the pods
+kubectl --context=uat-cluster get pods			--> picks uat-cluster context and shows the pods
+kubectl get svc --context=dev-cluster
+
+kubectl config use-context dev-cluster			--> Switch context to dev cluster. No need to pass --context
+kubectl config use-context uat-cluster			--> Switch context to uat cluster.
+
+
+kubectl config set-context uat-cluster --namespace=myapp		--> Set default namespace for our context
+
+kubectl config view
+kubectl config view --raw
+
+====================================
+
+If you want to get connected to an existing EKS cluster from a brand-new instance or laptop, you need the below tools:
+1. EKSCTL
+2. KubeCTL
+3. AWS CLI
+
+now update the kubeconfig
+
+aws eks update-kubeconfig --region ap-south-1 --name ekswithavinash --alias dev-cluster
+
+
+EKS has authentication modes:
+- EKS API - Advanced
+- Configmap	- Old tradiitonal, AWS stopped supporting
 
 
 
+ec2 instance (role) / New User (CLI)
+	|
+	|_ Has an IAM Role attached / CLI configured
+				|
+				|_ Is that IAM role/cli has EKS Permissions (Basic Describe permisisons)
+							|
+							|_ Is that IAM Role/User Mapped Inside EKS RBAC 
+											|
+											|_ kubectl start works here.
 
 
+---
+
+eks cluster-admin can perform below operations
+
+- Viewing all pods
+- Creating or deleting pods
+- Creating namespaces
+- Access all namespaces
+- Managing nodes
+- Managing secrets
+- Full control of everything
+
+eks admin policy : Everything same as cluster admin, but no node management..
+
+---
+
+kubectl auth can-i get pods
+kubectl auth can-i create pods
+kubectl auth can-i create deployments
+
+----
+
+https://github.com/googlecloudplatform/kubectl-ai
+
+======================================================================
+
+ISTIO --> Refer istio.txt file
+
+======================================================================
+
+Can i run K8s in my local laptop / an ec2 instance.
+
+Ans : YES, We can use minikube.. MiniKube is purely for a dev environment or testing purposes or lab environments only, not designed for a production workload. 
 
 
+Step 1 : Install kubectl 
+
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+Step 2 : Install Docker, minikube run as container - K8s run as contianer
+
+sudo dnf install docker -y
+sudo systemctl enable docker --now
+sudo usermod -aG docker ec2-user
+newgrp docker
+
+Step 3: Install minikube
+
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+sudo install minikube-linux-amd64 /usr/local/bin/minikube
 
 
+minikube version
+
+minikube start --driver=docker
+minikube start --driver=docker --cpu=2 --memory=2048 --disk-size=10g
+
+minikube config set driver docker
+
+minikube status
+minikube stop
+minikube start
+minikube delete
+minikube logs
 
 
+create a deployment and servoce in minikube, then we can perform port-forward to access it.
+
+kubectl port-forward --address 0.0.0.0 svc/cip-service 8080:80 -n default
+
+----
+
+minikube dashboard
+
+kubectl proxy --address='0.0.0.0' --disable-filter=true
+
+http://3.109.139.249:8001/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/
+
+Open port 8001 at Security group level.. 
 
 
 
